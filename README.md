@@ -1,2 +1,2 @@
 # m3py
-Multilingual, Multimodal, Multitask Models in python (M3P)
+Multilingual, Multimodal, Multitask models (m3m)
