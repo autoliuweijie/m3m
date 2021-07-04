@@ -1,5 +1,5 @@
 import setuptools
-from m3m import __VERSION__
+from m4 import __VERSION__
 
 print("VERSION: ".format(__VERSION__))
 
