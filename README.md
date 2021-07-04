@@ -1,3 +1,3 @@
-# m3m
+# M4
 
-Multilingual, Multimodal, Multitask models (m3m)
+Multilingual, Multimodal, Multitask Models (m4)

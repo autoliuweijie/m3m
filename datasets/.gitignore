@@ -1,3 +1,4 @@
 *.txt
 *.tsv
 !STS-B/*.tsv
+!STS-B_zh/*.tsv

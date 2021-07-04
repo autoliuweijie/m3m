@@ -10,11 +10,11 @@ packages = setuptools.find_packages()
 print(packages)
 
 setuptools.setup(
-    name="m3m",
+    name="m4",
     version=__VERSION__,
     author="Weijie Liu",
     author_email="autoliuweijie@163.com",
-    description="The pipy version of FastPLM",
+    description="Multilingual, Multimodal, Multitask Models",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/autoliuweijie/m3m",
@@ -29,5 +29,6 @@ setuptools.setup(
     python_requires='>=3.4',
     install_requires=[
         'torch>=1.0.0',
+        'transformers>=4.8.1'
         ]
 )
