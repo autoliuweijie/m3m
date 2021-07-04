@@ -3,10 +3,10 @@ import os
 import sys
 file_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(file_dir, '../../'))
-from m3m.models import BERT
-from m3m.poolers import BertPooler
-from m3m.utils.similarity import cosine_sim
-from m3m.losses import BatchPostivePairLoss
+from m4.models import BERT
+from m4.poolers import BertPooler
+from m4.utils.similarity import cosine_sim
+from m4.losses import BatchPostivePairLoss
 
 
 def test_BERT():
