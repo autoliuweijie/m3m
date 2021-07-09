@@ -113,6 +113,7 @@ class TrainArgs:
         metadata = {"help": "Path of the log file."}
     )
 
+
 def main():
 
     parser = HfArgumentParser((ModelArgs, DataArgs, TrainArgs))
