@@ -2,17 +2,16 @@
 import os
 import torch
 import torch.nn as nn
-from typing import List, Union, Optional
-from ..model_base import HFModel
+from typing import List, Union, Optional, Dict
+from ..model_base import HFTextModel
 from argparse import Namespace
 from transformers import BertTokenizer, BertModel
-from typing import Union, List, Dict
 from ...poolers import BertPooler
 from ...targets import BertSentenceClassificationTarget
 import logging
 
 
-class BERT(HFModel):
+class BERT(HFTextModel):
 
     def __init__(self,
                  model_dir : Optional[Union[str, os.PathLike]],
@@ -24,6 +23,9 @@ class BERT(HFModel):
 
 
 class BertForMatch(BERT):
+    """
+    Bert for sentence-pair classification.
+    """
 
     def __init__(self,
                  model_dir: Optional[Union[str, os.PathLike]],

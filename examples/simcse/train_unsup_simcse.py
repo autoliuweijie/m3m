@@ -94,7 +94,7 @@ class TrainArgs:
     )
 
     save_per_steps: int = field(
-        default = 0,
+        default = -1,
         metadata = {"help": "Default: only save at the end of epoch."}
     )
 
@@ -109,7 +109,7 @@ class TrainArgs:
     )
 
     train_log: str = field(
-        default = '/tmp/train_unsup_simces.log',
+        default = None,
         metadata = {"help": "Path of the log file."}
     )
 
@@ -143,7 +143,7 @@ def main():
     train_samples = []
     with open(data_args.corpus_path, 'r') as fin:
         for i, line in tqdm(enumerate(fin), desc="Loading train dataset"):
-            if len(line) >= 10:
+            if len(line) >= 3:
                 train_samples.append(line.strip())
     train_dataloader = DataLoader(
         train_samples,

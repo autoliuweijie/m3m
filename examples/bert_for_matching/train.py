@@ -93,34 +93,6 @@ class TrainArgs:
     )
 
 
-class STSbDataset(Dataset):
-
-    label_map = {'0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5}
-
-    def __init__(self,
-                 file_path):
-        self.file_path = file_path
-        self.data = []
-        with open(self.file_path, 'r') as fin:
-            for line in fin:
-                senta, sentb, label = line.strip().split('\t')
-                self.data.append({'senta': senta, 'sentb': sentb, 'label': self.label_map[label]})
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, index):
-        return self.data[index]
-
-    @property
-    def labels_num(self):
-        return len(self.label_map)
-
-    @property
-    def sents_num(self):
-        return 2
-
-
 class PairDataset(Dataset):
 
     label_map = {'0': 0, '1': 1}
