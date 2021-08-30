@@ -23,6 +23,7 @@ def main():
     with torch.no_grad():
         res = model(image)
     print(res['encode_res'].last_hidden_state.size())
+    print(res['encode_res'].pooler_output.size())
 
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
 # coding: utf-8
 import os
 import shutil
+import time
 import torch
 import torch.nn as nn
+import numpy as np
 from torch import Tensor
 from typing import Union, List, Dict
-import time
 from PIL import Image
-import numpy as np
 
 
 class BaseModel(nn.Module):

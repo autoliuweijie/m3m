@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+researchs/bridging_low-resource_languages_and_visual_models/

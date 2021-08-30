@@ -31,7 +31,7 @@ class BertPooler(BasePooler):
     ):
         super().__init__()
         assert pool_type in ["cls", "avg", "avg_top2", "avg_first_last"], \
-            "unrecognized pooling type %s" % self.pooler_type
+            "unrecognized pooling type %s" % pool_type
         self.pool_type = pool_type
 
     def forward(self,
@@ -45,7 +45,7 @@ class BertPooler(BasePooler):
             return last_hidden[:, 0]
         elif self.pool_type == 'avg':
             return ((last_hidden * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1))
-        elif self.pool_type == 'ave_top2':
+        elif self.pool_type == 'avg_top2':
             second_last_hidden = hidden_states[-2]
             last_hidden   = hidden_states[-1]
             pooled_result = ((last_hidden + second_last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
@@ -55,4 +55,10 @@ class BertPooler(BasePooler):
             last_hidden   = hidden_states[-1]
             pooled_result = ((first_hidden + last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
             return pooled_result
+
+
+class XlmrPooler(BertPooler):
+    """
+    Pooler for XLMR models.
+    """
 
