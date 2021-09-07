@@ -81,5 +81,3 @@ class Flrick30k(Dataset):
         return images, texts, gt_i2t, gt_t2i
 
 
-if __name__ == "__main__":
-    test()

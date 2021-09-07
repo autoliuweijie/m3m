@@ -1,2 +1,5 @@
-# coding: utf-8
-from .modeling_bert import BertForMatch
+from .tokenizer import BertTokenizer
+from .model import (
+    BertModel,
+    BertForSequenceClassification
+)

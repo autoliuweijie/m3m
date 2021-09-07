@@ -7,8 +7,7 @@ import torch
 m4_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../')
 sys.path.append(m4_dir)
 
-from m4.models import XLMR
-from m4.poolers import XlmrPooler
+from m4.models.XLMR import XLMRobertaTokenizer, XLMRobertaModel
 from m4.utils.similarity import cosine_sim, spearman_correlation
 
 
@@ -35,13 +34,36 @@ def load_data(path):
     return texta, textb, scores
 
 
+def get_embs(tokenizer, model, batch, pool_type='cls'):
+    inputs = tokenizer(batch, return_tensors='pt', padding=True, truncation=True, max_length=32)
+    outputs = model(**inputs, return_dict=True)
+
+    attention_mask = inputs.attention_mask
+    last_hidden    = outputs.last_hidden_state
+    hidden_states  = outputs.hidden_states
+
+    if pool_type == 'cls':
+        return last_hidden[:, 0]
+    elif pool_type == 'avg':
+        return ((last_hidden * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1))
+    elif pool_type == 'avg_top2':
+        second_last_hidden = hidden_states[-2]
+        last_hidden   = hidden_states[-1]
+        pooled_result = ((last_hidden + second_last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
+        return pooled_result
+    elif pool_type == 'avg_first_last':
+        first_hidden  = hidden_states[0]
+        last_hidden   = hidden_states[-1]
+        pooled_result = ((first_hidden + last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
+        return pooled_result
+
 def eval():
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     print(f'Loading model from {MODEL_DIR}')
-    model = XLMR(model_dir=MODEL_DIR)
-    pooler = XlmrPooler('avg')
+    tokenizer = XLMRobertaTokenizer.from_pretrained(MODEL_DIR)
+    model = XLMRobertaModel.from_pretrained(MODEL_DIR)
     model.eval()
     model.to(device)
 
@@ -53,7 +75,7 @@ def eval():
             scores = torch.tensor(scores, device=device)
             cosine_scores = torch.zeros_like(scores)
             for i, (a, b) in enumerate(zip(texta, textb)):
-                embs = pooler(model([a, b]))
+                embs = get_embs(tokenizer, model, [a, b], pool_type='avg')
                 cosine_scores[i] = cosine_sim(embs[0], embs[1], squeeze=True)[0]
             spear_coor = spearman_correlation(scores, cosine_scores).cpu().item()
         print(f'{file_name} : {spear_coor}')

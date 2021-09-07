@@ -20,6 +20,8 @@ DATA_FILES = [
 ]
 
 
+MY_STOPWORDS = [',', '.', "``", "''"]
+
 def load_data(path):
     texta, textb, scores = [], [], []
     with open(path, 'r') as fin:
@@ -41,7 +43,7 @@ def eval():
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    stop_words = set(stopwords.words('english'))
+    stop_words = set(stopwords.words('english') + MY_STOPWORDS)
     ps = PorterStemmer()
 
     print("Start inference")
@@ -57,7 +59,7 @@ def eval():
                 a_tokens = a.split(' ')
                 b_tokens = b.split(' ')
                 # pred_scores[i] = textdistance.levenshtein.normalized_similarity(a_tokens, b_tokens)
-                pred_scores[i] = len(set(a_tokens).intersection(set(b_tokens))) / max([len(a_tokens), len(b_tokens)])
+                pred_scores[i] = len(set(a_tokens).intersection(set(b_tokens))) / max([len(set(a_tokens)), len(set(b_tokens))])
             spear_coor = spearman_correlation(scores, pred_scores).cpu().item()
         print(f'{file_name} : {spear_coor}')
     print("End")

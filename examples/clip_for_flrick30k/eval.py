@@ -13,7 +13,7 @@ from tqdm import tqdm
 m4_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../')
 sys.path.append(m4_dir)
 
-from m4.models.CLIP.modeling_clip import CLIP
+from m4.models.CLIP import CLIPProcessor, CLIPModel
 from datasets import Flrick30k
 
 
@@ -58,26 +58,42 @@ def evaluate():
     args = parser.parse_args()
 
     dataset = Flrick30k(image_dir=args.image_dir, annot_path=args.annot_path, split=args.split)
-    model = CLIP(args.model_dir)
+    processor = CLIPProcessor.from_pretrained(args.model_dir)
+    model = CLIPModel.from_pretrained(args.model_dir)
     model.eval()
 
     images = dataset.get_all_images()
     texts  = dataset.get_all_texts()
 
     img_embs = []
-    for i, img_path in tqdm(enumerate(images), total=len(images), desc='Image encoding') :
-        img = Image.open(img_path)
-        with torch.no_grad():
-            emb = model.encode_image([img])[0].numpy()
-            img_embs.append(emb)
-    img_embs = np.array(img_embs)
+    img_batch = []
+    for i, img_path in tqdm(enumerate(images), total=len(images), desc='Image encoding'):
+        img_batch.append(Image.open(img_path))
+        if len(img_batch) < 4 and i != len(images) - 1:
+            continue
+        else:
+            with torch.no_grad():
+                inputs = processor(images=img_batch, return_tensors='pt')
+                embs = model.get_image_features(**inputs, return_dict=True, output_hidden_states=False)
+                embs = embs / embs.norm(dim=-1, keepdim=True)
+            img_embs.append(embs)
+            img_batch = []
+    img_embs = torch.cat(img_embs, dim=0).numpy()
 
     txt_embs = []
-    for i, sent in tqdm(enumerate(texts), total=len(texts), desc='Text encoding') :
-        with torch.no_grad():
-            emb = model.encode_text([sent])[0].numpy()
-            txt_embs.append(emb)
-    txt_embs = np.array(txt_embs)
+    txt_batch = []
+    for i, sent in tqdm(enumerate(texts), total=len(texts), desc='Text encoding'):
+        txt_batch.append(sent)
+        if len(txt_batch) < 4 and i != len(texts) - 1:
+            continue
+        else:
+            with torch.no_grad():
+                inputs = processor(text=txt_batch, return_tensors='pt', padding=True, truncation=True, max_length=77)
+                embs = model.get_text_features(**inputs, return_dict=True, output_hidden_states=False)
+                embs = embs / embs.norm(dim=-1, keepdim=True)
+            txt_embs.append(embs)
+            txt_batch = []
+    txt_embs = torch.cat(txt_embs, dim=0).numpy()
 
     sims = np.dot(img_embs, txt_embs.transpose())
 
