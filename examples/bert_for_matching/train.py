@@ -171,6 +171,7 @@ def main():
     valid_dataset = PairDataset(data_args.valid_path)
     datacolator = DataCollator(tokenizer, model_args.max_length)
 
+    tokenizer.save_pretrained(train_args.model_saving_dir)
     trainer = FineTuneTrainer(
         train_args,
         model,
