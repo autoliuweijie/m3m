@@ -139,7 +139,7 @@ class DataCollator(object):
         text2_batch = [s['text2'] for s in samples_batch]
         inputs = self.tokenizer(
             text1_batch,
-            text1_batch,
+            text2_batch,
             return_tensors='pt',
             padding=True,
             truncation=True,

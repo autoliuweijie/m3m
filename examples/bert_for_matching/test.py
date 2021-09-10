@@ -82,6 +82,7 @@ def main():
     true_labels_all = []
     for samples_batch in test_dataloader:
         with torch.no_grad():
+            samples_batch = samples_batch.to(device)
             outputs = model(**samples_batch)
             prds = torch.argmax(outputs.logits, dim=-1)
             tgts = samples_batch['labels']
