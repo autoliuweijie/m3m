@@ -1,4 +1,5 @@
 # coding: utf-8
+import os
 import math
 import argparse
 import json
@@ -86,12 +87,6 @@ class NerCollator(object):
         inputs['texts'] = texts
         inputs['ground_trues'] = ground_trues_batch
 
-        # # show example for debug
-        # token_example = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
-        # tag_id_example = tag_ids[0]
-        # assert len(token_example) == len(tag_id_example)
-        # for to, ta in zip(token_example, tag_id_example):
-            # print(to, ta.item())
         return inputs
 
 
@@ -178,7 +173,7 @@ def main():
     parser.add_argument("--train_data_path", type=str, required=True, help="Path to training file.")
     parser.add_argument("--valid_data_path", type=str, required=True, help='Path to the valid file')
     parser.add_argument("--saving_model_path", type=str, required=True, help='Path to the output model.')
-    parser.add_argument("--num_epochs", type=float, default=10, help='The number of training epoches.')
+    parser.add_argument("--num_epochs", type=int, default=10, help='The number of training epoches.')
     parser.add_argument("--batch_size", type=int, default=32, help='Batch size.')
     parser.add_argument("--learning_rate", type=float, default=5e-5, help='Learning rate.')
     parser.add_argument("--max_grad_norm", type=float, default=1.0, help='Max value of gradient.')
@@ -214,6 +209,9 @@ def main():
     valid_dataloader = DataLoader(valid_dataset, args.batch_size, shuffle=False, collate_fn=collator)
 
     optimizer, scheduler = get_optimizer_and_scheduler(args, model)
+
+    with open(os.path.join(args.saving_model_path, 'tag_map.json'), 'w') as fout:
+        json.dump(tagid_to_tag, fout, indent=2)
 
     loss_value = 0.0
     best_f1 = 0.0
