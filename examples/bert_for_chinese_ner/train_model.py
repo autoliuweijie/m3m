@@ -210,9 +210,6 @@ def main():
 
     optimizer, scheduler = get_optimizer_and_scheduler(args, model)
 
-    with open(os.path.join(args.saving_model_path, 'tag_map.json'), 'w') as fout:
-        json.dump(tagid_to_tag, fout, indent=2)
-
     loss_value = 0.0
     best_f1 = 0.0
     for epoch in range(1, args.num_epochs + 1):
@@ -275,7 +272,10 @@ def main():
         if avg_f1 > best_f1:
             tokenizer.save_pretrained(args.saving_model_path)
             model.save_pretrained(args.saving_model_path)
+            with open(os.path.join(args.saving_model_path, 'tag_map.json'), 'w') as fout:
+                json.dump(tagid_to_tag, fout, indent=2)
             logging.info(f"Saving model to {args.saving_model_path}")
+            best_f1 = avg_f1
 
     logging.info("Finish training")
     logging.info(f"The best model has been saved at {args.saving_model_path}")
