@@ -1,0 +1,4 @@
+data/*.tsv
+data/*.csv
+data/*.txt
+models/*

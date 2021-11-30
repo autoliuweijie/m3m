@@ -58,6 +58,10 @@ class NerCollator(object):
 
     def __call__(self,
                  batch):
+        """
+        Another method for Align Annotations With Huggingface Tokenizers:
+        https://www.lighttag.io/blog/sequence-labeling-with-transformers/example
+        """
         texts = [s['text'] for s in batch]
         inputs = self.tokenizer(
             texts,
