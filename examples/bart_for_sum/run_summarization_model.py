@@ -21,12 +21,13 @@ from transformers import (
     AdamW,
     SchedulerType,
     get_scheduler,
-    BatchEncoding
+    BatchEncoding,
+    set_seed
 )
 from rouge_score import rouge_scorer
 
 
-DEBUG = True
+DEBUG = False
 
 
 class SummaryDataset(IterableDataset):
@@ -175,7 +176,7 @@ def args_parse():
     parser.add_argument("--model_name", choices=['bart-base', 't5-small'], required=True, help="Path of the validation file.")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the model file.")
     parser.add_argument("--output", type=str, required=True, help="Path of the model saved directory.")
-    parser.add_argument("--max_length", type=int, default=128, help="Max length of the sequence length.")
+    parser.add_argument("--max_length", type=int, default=512, help="Max length of the sequence length.")
     parser.add_argument("--src_prefix", type=str, default='', help="Source prefix.")
     parser.add_argument("--tgt_prefix", type=str, default='', help="Target prefix.")
     parser.add_argument("--num_beams", type=int, default=5, help="The number of beams.")
@@ -188,7 +189,7 @@ def args_parse():
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--lr_scheduler_type", type=SchedulerType, default="linear", help="The scheduler type to use.", choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"])
     parser.add_argument("--num_warmup_steps", type=int, default=0, help="Number of steps for the warmup in the lr scheduler.")
-    parser.add_argument("--num_verbose_steps", type=int, default=2, help="Number of steps for verbose loss.")
+    parser.add_argument("--num_verbose_steps", type=int, default=100, help="Number of steps for verbose loss.")
     parser.add_argument("--ignore_pad_token_for_loss", type=bool, default=True, help="Whether to ignore the tokens corresponding to " "padded labels in the loss computation or not.")
 
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
@@ -202,10 +203,20 @@ def main():
 
     args = args_parse()
     args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    set_seed(7)
 
     # build model
     tokenizer, model = build_model(args)
     collator = SummaryCollator(args, tokenizer)
+    if torch.cuda.device_count() > 1:
+        args.multi_gpu = True
+        args.device_ids = [i for i in range(torch.cuda.device_count())]
+        args.output_device = args.device_ids[0]
+        model = torch.nn.DataParallel(model, args.device_ids, args.output_device)
+        print(f"Use {args.device_ids} for multi-gpu training.")
+    else:
+        args.multi_gpu = False
+        print(f"Use {args.device} for single-gpu training.")
 
     # load dataset
     train_dataset = SummaryDataset(args.train_dataset)
@@ -234,6 +245,8 @@ def main():
             outputs = model(**batch)
             loss = outputs.loss
             loss = loss / args.gradient_accumulation_steps
+            if args.multi_gpu:
+                loss = loss.mean()
             loss.backward()
 
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
@@ -257,7 +270,7 @@ def main():
         for step, batch in enumerate(train_dataloader):
             batch = batch.to(args.device)
             with torch.no_grad():
-                generated_tokens = model.generate(
+                generated_tokens = model.module.generate(
                     batch["input_ids"],
                     attention_mask=batch["attention_mask"],
                     **gen_kwargs,
@@ -283,7 +296,7 @@ def main():
         if rl > best_rl:
             print(f"Saving model to {args.output}")
             tokenizer.save_pretrained(args.output)
-            model.save_pretrained(args.output)
+            model.module.save_pretrained(args.output)
 
 
 if __name__ == "__main__":
