@@ -119,6 +119,7 @@ def main():
 
     # build model
     tokenizer, model = build_model(args, args.model_path)
+    model.to(args.device)
 
     # load dataset
     test_dataset = SummaryDataset(args.test_dataset)
@@ -145,7 +146,8 @@ def main():
         articles = [s['article'] for s in batch]
         summarys = [s['summary'] for s in batch]
 
-        inputs = collator(batch).to(args.device)
+        inputs = collator(batch)
+        inputs.to(args.device)
         with torch.no_grad():
             generated_tokens = model.generate(
                 inputs["input_ids"],
