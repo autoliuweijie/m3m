@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-Text Summarization.
+Fine-tune summarization model on specific tasks with DDP.
 
 @ref: https://github.com/huggingface/transformers/blob/master/examples/pytorch/summarization/run_summarization_no_trainer.py
 """
@@ -13,6 +13,10 @@ import re
 
 import torch
 import torch.nn as nn
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import IterableDataset, DataLoader
 
 from transformers import (
@@ -30,10 +34,19 @@ from rouge_score import rouge_scorer
 DEBUG = False
 
 
+GEN_KWARGS = {
+    # Refer to BART config (https://github.com/pytorch/fairseq/blob/main/examples/bart/summarize.py)
+    'bart-cnndm': {"num_beams": 4, "length_penalty": 2.0, "max_length": 140, "min_length": 55, "no_repeat_ngram_size": 3},
+    'bart-xsum' : {"num_beams": 6, "length_penalty": 1.0, "max_length": 60,  "min_length": 10, "no_repeat_ngram_size": 3},
+}
+
+
 class SummaryDataset(IterableDataset):
 
     def __init__(self,
-                 file_path: str
+                 file_path: str,
+                 rank,
+                 world_size
     ):
         super(SummaryDataset).__init__()
         self.file_path = file_path
@@ -41,21 +54,19 @@ class SummaryDataset(IterableDataset):
         self.start = self.info['start']
         self.end   = self.info['end']
 
+        self.rank  = rank
+        self.world_size = world_size
+
+        self.per_worker = int(math.floor((self.end - self.start) / float(self.world_size)))
+        self.iter_start = self.start + self.rank * self.per_worker
+        self.iter_end = min(self.iter_start + self.per_worker, self.end)
+
     def __iter__(self):
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:  # single worker
-            iter_start = self.start
-            iter_end   = self.end
-        else:  # multiple workers
-            per_worker = int(math.ceil((self.end - self.start) / float(worker_info.num_workers)))
-            worker_id = worker_info.id
-            iter_start = self.start + worker_id * per_worker
-            iter_end = min(iter_start + per_worker, self.end)
-        sample_iterator = self._sample_generator(iter_start, iter_end)
+        sample_iterator = self._sample_generator(self.iter_start, self.iter_end)
         return sample_iterator
 
     def __len__(self):
-        return self.end - self.start
+        return self.iter_end - self.iter_start
 
     def _get_file_info(self,
                        file_path
@@ -70,7 +81,7 @@ class SummaryDataset(IterableDataset):
         with open(file_path, 'r') as fin:
             for _ in enumerate(fin):
                 info['end'] += 1
-        if DEBUG: info['end'] = 10
+        if DEBUG: info['end'] = 100
         return info
 
     def _sample_generator(self, start, end):
@@ -138,14 +149,12 @@ def get_scheduler_and_optimizer(args, model):
     return scheduler, optimizer
 
 
-def build_model(args):
-    print(f"Loading {args.model_name} from {args.model_path}.")
+def build_model(args, model_path):
     if args.model_name == 'bart-base':
-        tokenizer = BartTokenizer.from_pretrained(args.model_path)
-        model = BartForConditionalGeneration.from_pretrained(args.model_path)
+        tokenizer = BartTokenizer.from_pretrained(model_path)
+        model = BartForConditionalGeneration.from_pretrained(model_path)
     else:
         raise Exception("Unknown model name")
-    model.to(args.device)
     return tokenizer, model
 
 
@@ -168,21 +177,80 @@ def agregate_score(scores):
     r1 = r1 / len(scores)
     r2 = r2 / len(scores)
     rl = rl / len(scores)
-    return r1, r2, rl
+    return {"r1": r1, "r2": r2, "rl": rl}
+
+
+def gather_score(args, score_object):
+    # dist.barrier()  # we do not need it when gathering data, since dist.all_gather_object does it for us
+    score_all_process = [None for _ in range(args.world_size)]
+    dist.all_gather_object(score_all_process, score_object)
+    final_score = {"r1": 0, "r2": 0, "rl": 0}
+    for single_process_score in score_all_process:
+        final_score["r1"] += single_process_score["r1"]
+        final_score["r2"] += single_process_score["r2"]
+        final_score["rl"] += single_process_score["rl"]
+    final_score["r1"] /= args.world_size
+    final_score["r2"] /= args.world_size
+    final_score["rl"] /= args.world_size
+    return final_score
+
+
+def subprint(rank,
+             content):
+    print(f"Worker {rank}: " + content)
+    sys.stdout.flush()
+
+
+def evaluate(args, rank, tokenizer, model, dataloader, scorer):
+    model.eval()
+    gen_kwargs = GEN_KWARGS[args.gen_kwargs]
+    gen_kwargs['pad_token_id'] = tokenizer.pad_token_id
+    scores = []
+    for step, batch in enumerate(dataloader):
+        batch = batch.to(rank)
+        with torch.no_grad():
+            generated_tokens = model.module.generate(
+                batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                **gen_kwargs,
+            )  # batch_size x max_length
+        labels = batch['labels']  # batch_size x max_length
+
+        generated_tokens = generated_tokens.cpu().numpy()
+        labels = labels.cpu().numpy()
+        if args.ignore_pad_token_for_loss:  # Replace -100 in the labels as we can't decode them.
+            labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+
+        decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)  # list of batch_size sentences
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)  # list of batch_size sentences
+        decoded_preds = postprocess_text(decoded_preds)
+        decoded_labels = postprocess_text(decoded_labels)
+
+        for ref, pred in zip(decoded_labels, decoded_preds):
+            score = scorer.score(ref, pred)
+            scores.append(score)
+
+    score_single_process = agregate_score(scores)
+    final_score = gather_score(args, score_single_process)
+    return final_score
+
 
 
 def args_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", choices=['bart-base', 't5-small'], required=True, help="Path of the validation file.")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to the model file.")
-    parser.add_argument("--output", type=str, required=True, help="Path of the model saved directory.")
+    parser.add_argument("--init_model_path", type=str, required=True, help="Path to the pretrained model file.")
+    parser.add_argument("--output_model_path", type=str, required=True, help="Path of the model saved directory.")
     parser.add_argument("--max_length", type=int, default=512, help="Max length of the sequence length.")
     parser.add_argument("--src_prefix", type=str, default='', help="Source prefix.")
     parser.add_argument("--tgt_prefix", type=str, default='', help="Target prefix.")
-    parser.add_argument("--num_beams", type=int, default=5, help="The number of beams.")
+    parser.add_argument("--gen_kwargs", choices=['bart-cnndm', 'bart-xsum'], default='cnndm', help="kwargs for generation.")
 
     parser.add_argument("--train_dataset", type=str, required=True, help="Path of the training file.")
     parser.add_argument("--valid_dataset", type=str, required=True, help="Path of the validation file.")
+    parser.add_argument("--test_dataset", type=str, required=True, help="Path of the testing file.")
+
+    parser.add_argument("--batch_size", type=int, default=8, help="Batch size.")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
     parser.add_argument("--learning_rate", type=float, default=5e-5, help="Initial learning rate (after the potential warmup period) to use.")
     parser.add_argument("--num_train_epochs", type=int, default=3, help="Total number of training epochs to perform.")
@@ -192,47 +260,44 @@ def args_parse():
     parser.add_argument("--num_verbose_steps", type=int, default=100, help="Number of steps for verbose loss.")
     parser.add_argument("--ignore_pad_token_for_loss", type=bool, default=True, help="Whether to ignore the tokens corresponding to " "padded labels in the loss computation or not.")
 
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
-    parser.add_argument("--num_workers", type=int, default=0, help="The number of workers.")
-
     args = parser.parse_args()
     return args
 
 
-def main():
+def dist_setup(args,
+               rank,
+               world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-    args = args_parse()
-    args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    set_seed(7)
+
+def train_worker(rank, args):
+    subprint(rank, f"Process has been created.")
+    dist_setup(args, rank, args.world_size)
 
     # build model
-    tokenizer, model = build_model(args)
+    tokenizer, model = build_model(args, args.init_model_path)
     collator = SummaryCollator(args, tokenizer)
-    if torch.cuda.device_count() > 1:
-        args.multi_gpu = True
-        args.device_ids = [i for i in range(torch.cuda.device_count())]
-        args.output_device = args.device_ids[0]
-        model = torch.nn.DataParallel(model, args.device_ids, args.output_device)
-        print(f"Use {args.device_ids} for multi-gpu training.")
-    else:
-        args.multi_gpu = False
-        print(f"Use {args.device} for single-gpu training.")
+    model.to(rank)
+    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+    subprint(rank, f"Loading {args.model_name} from {args.init_model_path}.")
+
+    # metric
+    rouge_types = ["rouge1", "rouge2", "rougeL"]
+    scorer = rouge_scorer.RougeScorer(rouge_types)
 
     # load dataset
-    train_dataset = SummaryDataset(args.train_dataset)
-    valid_dataset = SummaryDataset(args.valid_dataset)
-    train_dataloader = DataLoader(train_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size)
-    valid_dataloader = DataLoader(valid_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size)
-    # print(list(train_dataloader))
+    train_dataset = SummaryDataset(args.train_dataset, rank, args.world_size)
+    valid_dataset = SummaryDataset(args.valid_dataset, rank, args.world_size)
+    train_dataloader = DataLoader(train_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size, num_workers=0)
+    valid_dataloader = DataLoader(valid_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size, num_workers=0)
 
     # lr scheduler and optimizer
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     scheduler, optimizer = get_scheduler_and_optimizer(args, model)
-
-    # metric
-    rouge_types = ["rouge1", "rouge2", "rougeL"]
-    scorer = rouge_scorer.RougeScorer(rouge_types)
+    subprint(rank, f"There are {num_update_steps_per_epoch} training steps for each epoch.")
 
     # Training
     best_rl = 0
@@ -241,12 +306,10 @@ def main():
         model.train()
         verbose_loss = 0
         for step, batch in enumerate(train_dataloader):
-            batch = batch.to(args.device)
+            batch = batch.to(rank)
             outputs = model(**batch)
             loss = outputs.loss
             loss = loss / args.gradient_accumulation_steps
-            if args.multi_gpu:
-                loss = loss.mean()
             loss.backward()
 
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
@@ -255,48 +318,46 @@ def main():
                 optimizer.zero_grad()
 
             verbose_loss += loss.cpu().item()
-            if step % args.num_verbose_steps == 0 or step == len(train_dataloader) - 1:
+            if (step + 1) % args.num_verbose_steps == 0 or step == len(train_dataloader) - 1:
                 verbose_loss = verbose_loss / args.num_verbose_steps
-                print(f"Epoch {epoch} / {args.num_train_epochs} step {step+1} / {len(train_dataloader)}: loss = {verbose_loss:.4f}")
+                subprint(rank, f"Epoch {epoch} / {args.num_train_epochs} step {step+1} / {len(train_dataloader)}: loss = {verbose_loss:.4f}")
                 verbose_loss = 0
 
-        model.eval()
-        gen_kwargs = {
-            "max_length": args.max_length,
-            "num_beams" : args.num_beams,
-            "pad_token_id": tokenizer.pad_token_id
-        }
-        scores = []
-        for step, batch in enumerate(train_dataloader):
-            batch = batch.to(args.device)
-            with torch.no_grad():
-                generated_tokens = model.module.generate(
-                    batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    **gen_kwargs,
-                )  # batch_size x max_length
-            labels = batch['labels']  # batch_size x max_length
+        # Evaluation
+        final_score = evaluate(args, rank, tokenizer, model, valid_dataloader, scorer)
+        if rank == 0:
+            subprint(rank, f"Epoch {epoch} / {args.num_train_epochs}: r1={final_score['r1']:.4f}, r2={final_score['r2']:.4f}, rl={final_score['rl']:.4f}")
 
-            generated_tokens = generated_tokens.cpu().numpy()
-            labels = labels.cpu().numpy()
-            if args.ignore_pad_token_for_loss:  # Replace -100 in the labels as we can't decode them.
-                labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+        if final_score['rl'] > best_rl and rank == 0:
+            subprint(rank, f"Saving model to {args.output_model_path}")
+            tokenizer.save_pretrained(args.output_model_path)
+            model.module.save_pretrained(args.output_model_path)
 
-            decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)  # list of batch_size sentences
-            decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)  # list of batch_size sentences
-            decoded_preds = postprocess_text(decoded_preds)
-            decoded_labels = postprocess_text(decoded_labels)
+    # Testing
+    test_dataset = SummaryDataset(args.test_dataset, rank, args.world_size)
+    test_dataloader = DataLoader(test_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size, num_workers=args.num_workers)
+    tokenizer, model = build_model(args, args.output_model_path)
+    model.to(rank)
+    final_score = evaluate(args, rank, tokenizer, model, test_dataloader, scorer)
+    if rank == 0:
+        subprint(rank, f"Final testing: r1={final_score['r1']:.4f}, r2={final_score['r2']:.4f}, rl={final_score['rl']:.4f}")
 
-            for ref, pred in zip(decoded_labels, decoded_preds):
-                score = scorer.score(ref, pred)
-                scores.append(score)
-        r1, r2, rl = agregate_score(scores)
-        print(f"Epoch {epoch} / {args.num_train_epochs}: r1={r1:.4f}, r2={r2:.4f}, rl={rl:.4f}")
 
-        if rl > best_rl:
-            print(f"Saving model to {args.output}")
-            tokenizer.save_pretrained(args.output)
-            model.module.save_pretrained(args.output)
+def main():
+    args = args_parse()
+    args.world_size = torch.cuda.device_count()
+    set_seed(7)
+    print(f"Main: Let's use {args.world_size} gpus for training.")
+
+    if args.world_size > 0:
+        mp.spawn(
+            train_worker,
+            args=(args,),
+            nprocs=args.world_size
+        )
+    else:
+        raise Exception("Error: No gpu is available.")
+    print(f"Main: Finish.")
 
 
 if __name__ == "__main__":
