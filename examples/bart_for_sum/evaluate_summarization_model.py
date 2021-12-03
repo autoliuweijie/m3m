@@ -24,6 +24,7 @@ from transformers import (
     set_seed
 )
 from rouge_score import rouge_scorer
+from tqdm import tqdm
 
 from finetune_summarization_model_with_ddp import (
     GEN_KWARGS,
@@ -139,8 +140,8 @@ def main():
     fout = open(args.output, 'w')
     model.eval()
     print("Start evaluation")
-    for step, batch in enumerate(test_dataloader):
-        print(f"Step {step+1} / {len(test_dataloader)}")
+    for step, batch in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+        # print(f"Step {step+1} / {len(test_dataloader)}")
 
         ids = [s['id'] for s in batch]
         articles = [s['article'] for s in batch]
