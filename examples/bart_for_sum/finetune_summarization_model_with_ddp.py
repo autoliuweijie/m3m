@@ -244,7 +244,7 @@ def args_parse():
     parser.add_argument("--max_length", type=int, default=512, help="Max length of the sequence length.")
     parser.add_argument("--src_prefix", type=str, default='', help="Source prefix.")
     parser.add_argument("--tgt_prefix", type=str, default='', help="Target prefix.")
-    parser.add_argument("--gen_kwargs", choices=['bart-cnndm', 'bart-xsum'], default='cnndm', help="kwargs for generation.")
+    parser.add_argument("--gen_kwargs", choices=['bart-cnndm', 'bart-xsum'], required=True, help="kwargs for generation.")
 
     parser.add_argument("--train_dataset", type=str, required=True, help="Path of the training file.")
     parser.add_argument("--valid_dataset", type=str, required=True, help="Path of the validation file.")
