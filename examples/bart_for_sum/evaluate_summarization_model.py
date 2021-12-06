@@ -78,7 +78,7 @@ class SummaryDataset(IterableDataset):
         with open(file_path, 'r') as fin:
             for _ in enumerate(fin):
                 info['end'] += 1
-        if DEBUG: info['end'] = 10
+        if DEBUG: info['end'] = 100
         return info
 
     def _sample_generator(self, start, end):
@@ -128,8 +128,8 @@ def main():
     collator = SummaryCollator(args, tokenizer)
 
     # metric
-    rouge_types = ["rouge1", "rouge2", "rougeL"]
-    scorer = rouge_scorer.RougeScorer(rouge_types)
+    rouge_types = ["rouge1", "rouge2", "rougeLsum"]
+    scorer = rouge_scorer.RougeScorer(rouge_types, use_stemmer=True)
 
     # generate kwargs
     gen_kwargs = GEN_KWARGS[args.gen_kwargs]
@@ -159,6 +159,7 @@ def main():
         generated_tokens = generated_tokens.cpu().numpy()
         decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)  # list of batch_size sentences
         decoded_preds = postprocess_text(decoded_preds)
+        summarys = postprocess_text(summarys)
 
         for i, art, ref, pred in zip(ids, articles, summarys, decoded_preds):
             score = scorer.score(ref, pred)

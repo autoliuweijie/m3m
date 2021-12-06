@@ -10,6 +10,7 @@ import argparse
 import math
 import numpy as np
 import re
+import nltk
 
 import torch
 import torch.nn as nn
@@ -36,7 +37,7 @@ DEBUG = False
 
 GEN_KWARGS = {
     # Refer to BART config (https://github.com/pytorch/fairseq/blob/main/examples/bart/summarize.py)
-    'bart-cnndm': {"num_beams": 4, "length_penalty": 2.0, "max_length": 140, "min_length": 55, "no_repeat_ngram_size": 3},
+    'bart-cnndm': {"num_beams": 4, "length_penalty": 2.0, "max_length": 142, "min_length": 56, "no_repeat_ngram_size": 3, "do_sample": False, "early_stopping": True},
     'bart-xsum' : {"num_beams": 6, "length_penalty": 1.0, "max_length": 60,  "min_length": 10, "no_repeat_ngram_size": 3},
 }
 
@@ -163,7 +164,7 @@ def postprocess_text(texts):
     for sent in texts:
         sent = sent.strip().replace('\\n', '\n').replace('\\t', '\t')
         sent = re.sub(r'\.+', '.', sent)  # replace '...' to '.'
-        # sent = "\n".join(nltk.sent_tokenize(sent.strip()))  # rougeLSum expects newline after each sentence
+        sent = "\n".join(nltk.sent_tokenize(sent.strip()))  # rougeLSum expects newline after each sentence
         after_texts.append(sent)
     return after_texts
 
@@ -173,7 +174,7 @@ def agregate_score(scores):
     for s in scores:
         r1 += s['rouge1'].fmeasure
         r2 += s['rouge2'].fmeasure
-        rl += s['rougeL'].fmeasure
+        rl += s['rougeLsum'].fmeasure
     r1 = r1 / len(scores)
     r2 = r2 / len(scores)
     rl = rl / len(scores)
@@ -284,8 +285,8 @@ def train_worker(rank, args):
     subprint(rank, f"Loading {args.model_name} from {args.init_model_path}.")
 
     # metric
-    rouge_types = ["rouge1", "rouge2", "rougeL"]
-    scorer = rouge_scorer.RougeScorer(rouge_types)
+    rouge_types = ["rouge1", "rouge2", "rougeLsum"]
+    scorer = rouge_scorer.RougeScorer(rouge_types, use_stemmer=True)
 
     # load dataset
     train_dataset = SummaryDataset(args.train_dataset, rank, args.world_size)
