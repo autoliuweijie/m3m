@@ -94,10 +94,10 @@ class SummaryDataset(IterableDataset):
 
 def args_parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", choices=['bart-base', 't5-small'], required=True, help="Path of the validation file.")
+    parser.add_argument("--model_name", choices=['bart-base', 'bart-large', 't5-small'], required=True, help="Path of the validation file.")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the model file.")
     parser.add_argument("--output", type=str, required=True, help="Path of the output result file..")
-    parser.add_argument("--max_length", type=int, default=512, help="Max length of the sequence length.")
+    parser.add_argument("--max_length", type=int, default=1024, help="Max length of the sequence length.")
     parser.add_argument("--src_prefix", type=str, default='', help="Source prefix.")
     parser.add_argument("--tgt_prefix", type=str, default='', help="Target prefix.")
     parser.add_argument("--gen_kwargs", choices=['bart-cnndm', 'bart-xsum'], default='cnndm', help="kwargs for generation.")

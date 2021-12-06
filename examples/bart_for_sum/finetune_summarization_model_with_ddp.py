@@ -150,7 +150,7 @@ def get_scheduler_and_optimizer(args, model):
 
 
 def build_model(args, model_path):
-    if args.model_name == 'bart-base':
+    if args.model_name in ['bart-base', 'bart-large']:
         tokenizer = BartTokenizer.from_pretrained(model_path)
         model = BartForConditionalGeneration.from_pretrained(model_path)
     else:
@@ -238,10 +238,10 @@ def evaluate(args, rank, tokenizer, model, dataloader, scorer):
 
 def args_parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", choices=['bart-base', 't5-small'], required=True, help="Path of the validation file.")
+    parser.add_argument("--model_name", choices=['bart-base', 'bart-large', 't5-small'], required=True, help="Path of the validation file.")
     parser.add_argument("--init_model_path", type=str, required=True, help="Path to the pretrained model file.")
     parser.add_argument("--output_model_path", type=str, required=True, help="Path of the model saved directory.")
-    parser.add_argument("--max_length", type=int, default=512, help="Max length of the sequence length.")
+    parser.add_argument("--max_length", type=int, default=1024, help="Max length of the sequence length.")
     parser.add_argument("--src_prefix", type=str, default='', help="Source prefix.")
     parser.add_argument("--tgt_prefix", type=str, default='', help="Target prefix.")
     parser.add_argument("--gen_kwargs", choices=['bart-cnndm', 'bart-xsum'], required=True, help="kwargs for generation.")
@@ -297,14 +297,14 @@ def train_worker(rank, args):
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     scheduler, optimizer = get_scheduler_and_optimizer(args, model)
-    subprint(rank, f"There are {num_update_steps_per_epoch} training steps for each epoch.")
+    subprint(rank, f"There are {len(train_dataloader)} training steps for each epoch.")
 
     # Training
     best_rl = 0
     for epoch in range(1, args.num_train_epochs+1):
 
         model.train()
-        verbose_loss = 0
+        verbose_loss, tmp_steps = 0
         for step, batch in enumerate(train_dataloader):
             batch = batch.to(rank)
             outputs = model(**batch)
@@ -312,16 +312,17 @@ def train_worker(rank, args):
             loss = loss / args.gradient_accumulation_steps
             loss.backward()
 
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+            if (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1) == len(train_dataloader):
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
 
             verbose_loss += loss.cpu().item()
-            if (step + 1) % args.num_verbose_steps == 0 or step == len(train_dataloader) - 1:
-                verbose_loss = verbose_loss / args.num_verbose_steps
+            tmp_steps += 1
+            if (step + 1) % args.num_verbose_steps == 0 or (step + 1) == len(train_dataloader):
+                verbose_loss = verbose_loss / tmp_steps
                 subprint(rank, f"Epoch {epoch} / {args.num_train_epochs} step {step+1} / {len(train_dataloader)}: loss = {verbose_loss:.4f}")
-                verbose_loss = 0
+                verbose_loss, tmp_steps = 0
 
         # Evaluation
         final_score = evaluate(args, rank, tokenizer, model, valid_dataloader, scorer)
