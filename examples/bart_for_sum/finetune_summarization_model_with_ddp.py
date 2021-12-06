@@ -27,7 +27,7 @@ from transformers import (
     SchedulerType,
     get_scheduler,
     BatchEncoding,
-    set_seed
+    set_seed,
 )
 from rouge_score import rouge_scorer
 
@@ -224,9 +224,9 @@ def evaluate(args, rank, tokenizer, model, dataloader, scorer):
 
         decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)  # list of batch_size sentences
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)  # list of batch_size sentences
+
         decoded_preds = postprocess_text(decoded_preds)
         decoded_labels = postprocess_text(decoded_labels)
-
         for ref, pred in zip(decoded_labels, decoded_preds):
             score = scorer.score(ref, pred)
             scores.append(score)
@@ -305,7 +305,7 @@ def train_worker(rank, args):
     for epoch in range(1, args.num_train_epochs+1):
 
         model.train()
-        verbose_loss, tmp_steps = 0
+        verbose_loss, tmp_steps = 0, 0
         for step, batch in enumerate(train_dataloader):
             batch = batch.to(rank)
             outputs = model(**batch)
@@ -318,12 +318,12 @@ def train_worker(rank, args):
                 scheduler.step()
                 optimizer.zero_grad()
 
-            verbose_loss += loss.cpu().item()
+            verbose_loss += loss.cpu().item() * args.gradient_accumulation_steps
             tmp_steps += 1
             if (step + 1) % args.num_verbose_steps == 0 or (step + 1) == len(train_dataloader):
                 verbose_loss = verbose_loss / tmp_steps
                 subprint(rank, f"Epoch {epoch} / {args.num_train_epochs} step {step+1} / {len(train_dataloader)}: loss = {verbose_loss:.4f}")
-                verbose_loss, tmp_steps = 0
+                verbose_loss, tmp_steps = 0, 0
 
         # Evaluation
         final_score = evaluate(args, rank, tokenizer, model, valid_dataloader, scorer)
@@ -331,15 +331,18 @@ def train_worker(rank, args):
             subprint(rank, f"Epoch {epoch} / {args.num_train_epochs}: r1={final_score['r1']:.4f}, r2={final_score['r2']:.4f}, rl={final_score['rl']:.4f}")
 
         if final_score['rl'] > best_rl and rank == 0:
-            subprint(rank, f"Saving model to {args.output_model_path}")
             tokenizer.save_pretrained(args.output_model_path)
             model.module.save_pretrained(args.output_model_path)
+            subprint(rank, f"Saving model to {args.output_model_path}")
+
 
     # Testing
+    dist.barrier()
     test_dataset = SummaryDataset(args.test_dataset, rank, args.world_size)
-    test_dataloader = DataLoader(test_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size, num_workers=args.num_workers)
+    test_dataloader = DataLoader(test_dataset, shuffle=False, collate_fn=collator, batch_size=args.batch_size, num_workers=0)
     tokenizer, model = build_model(args, args.output_model_path)
     model.to(rank)
+    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
     final_score = evaluate(args, rank, tokenizer, model, test_dataloader, scorer)
     if rank == 0:
         subprint(rank, f"Final testing: r1={final_score['r1']:.4f}, r2={final_score['r2']:.4f}, rl={final_score['rl']:.4f}")
