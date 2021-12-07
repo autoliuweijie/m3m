@@ -141,7 +141,6 @@ def main():
     model.eval()
     print("Start evaluation")
     for step, batch in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
-        # print(f"Step {step+1} / {len(test_dataloader)}")
 
         ids = [s['id'] for s in batch]
         articles = [s['article'] for s in batch]
