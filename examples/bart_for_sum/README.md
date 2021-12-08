@@ -7,7 +7,8 @@ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_m
     --model_name bart-base \
     --init_model_path ./models/bart-base/ \
     --output_model_path ./models/bart-base-cnndm/ \
-    --batch_size 4 --max_length 1024 --num_train_epochs 5 --learning_rate 1e-4 --gen_kwargs bart-cnndm --gradient_accumulation_steps 2 \
+    --batch_size 4 --max_length 1024 --num_train_epochs 5 --learning_rate 3e-5 --gradient_accumulation_steps 1 \
+    --gen_kwargs bart-cnndm --lr_scheduler_type polynomial --weight_decay 0.01 --max_grad_norm 0.1 \
     --train_dataset ./data/CNNDM/train.tsv \
     --valid_dataset ./data/CNNDM/valid.tsv \
     --test_dataset ./data/CNNDM/test.tsv \
