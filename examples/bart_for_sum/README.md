@@ -1,7 +1,9 @@
 # Summarization
 
-## Finetune
 
+## BART-base on CNNDM
+
+Fine-tuning ``BART`` model for ``CNN-DailyMail``.
 ```python3
 CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_model_with_ddp.py \
     --model_name bart-base \
@@ -15,13 +17,18 @@ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_m
     > train.log &
 ```
 
-## Evaluation
-
+Evaluation.
 ```python3
 python3 -u evaluate_summarization_model.py \
     --model_name bart-base \
     --model_path ./models/bart-base-cnndm/ \
     --batch_size 16 --max_length 1024 --gen_kwargs bart-cnndm --num_workers 2 \
+    --gen_kwargs bart-cnndm  \
     --test_dataset ./data/CNNDM/test.tsv \
     --output ./data/CNNDM/result.tsv
 ```
+
+
+## BART-large on CNNDM
+
+pass
