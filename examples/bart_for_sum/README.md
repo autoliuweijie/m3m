@@ -3,7 +3,7 @@
 
 ## BART-base on CNNDM
 
-Fine-tuning ``BART`` model for ``CNN-DailyMail``.
+Fine-tuning ``BART-base`` model for ``CNN-DailyMail``.
 ```python3
 CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_model_with_ddp.py \
     --model_name bart-base \
@@ -17,13 +17,31 @@ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_m
     > train.log &
 ```
 
-Evaluation.
+The evaluation results can be observed by
+```bash
+$ tail -f train.log | grep 'Worker 0'
+
+>>
+...
+Worker 0: Epoch 1 / 5: r1=0.4169, r2=0.1910, rl=0.3843
+...
+Worker 0: Epoch 2 / 5: r1=0.4202, r2=0.1943, rl=0.3878
+...
+Worker 0: Epoch 3 / 5: r1=0.4215, r2=0.1951, rl=0.3888
+...
+Worker 0: Epoch 4 / 5: r1=0.4212, r2=0.1947, rl=0.3885
+...
+Worker 0: Epoch 5 / 5: r1=0.4226, r2=0.1960, rl=0.3899
+Worker 0: Final testing: r1=0.4163, r2=0.1919, rl=0.3836
+```
+
+Evaluating on the testing dataset..
 ```python3
 python3 -u evaluate_summarization_model.py \
     --model_name bart-base \
     --model_path ./models/bart-base-cnndm/ \
     --batch_size 16 --max_length 1024 --gen_kwargs bart-cnndm --num_workers 2 \
-    --gen_kwargs bart-cnndm  \
+    --gen_kwargs bart-cnndm \
     --test_dataset ./data/CNNDM/test.tsv \
     --output ./data/CNNDM/result.tsv
 ```
