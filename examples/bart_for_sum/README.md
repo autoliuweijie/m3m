@@ -3,9 +3,9 @@
 
 ## BART-base on CNNDM
 
-Fine-tuning ``BART-base`` model for ``CNN-DailyMail``.
+Fine-tuning with ``max_length=512``.
 ```bash
-CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_model_with_ddp.py \
+$ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_model_with_ddp.py \
     --model_name bart-base \
     --init_model_path ./models/bart-base/ \
     --output_model_path ./models/bart-base-cnndm/ \
@@ -15,10 +15,7 @@ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_m
     --valid_dataset ./data/CNNDM/valid.tsv \
     --test_dataset ./data/CNNDM/test.tsv \
     > train.log &
-```
 
-The evaluation results can be observed by
-```bash
 $ tail -f train.log | grep 'Worker 0'
 >>
 Worker 0: Epoch 1 / 5: r1=0.4169, r2=0.1910, rl=0.3843
@@ -29,7 +26,7 @@ Worker 0: Epoch 5 / 5: r1=0.4226, r2=0.1960, rl=0.3899
 Worker 0: Final testing: r1=0.4163, r2=0.1919, rl=0.3836
 ```
 
-Evaluating on the testing dataset..
+Evaluating on the testing dataset.
 ```bash
 python3 -u evaluate_summarization_model.py \
     --model_name bart-base \
@@ -44,7 +41,7 @@ python3 -u evaluate_summarization_model.py \
 
 Fine-tuning with ``max_length=512``
 ```
-CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_model_with_ddp.py \
+$ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_model_with_ddp.py \
     --model_name bart-large \
     --init_model_path ./models/bart-large/ \
     --output_model_path ./models/bart-large-cnndm/ \
@@ -54,10 +51,7 @@ CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7' nohup python3 -u finetune_summarization_m
     --valid_dataset ./data/CNNDM/valid.tsv \
     --test_dataset ./data/CNNDM/test.tsv \
     > train.log &
-```
 
-The evaluation results can be observed by
-```bash
 $ tail -f train.log | grep 'Worker 0'
 >>
 Worker 0: Epoch 1 / 5: r1=0.4302, r2=0.2027, rl=0.3975
@@ -68,7 +62,7 @@ Worker 0: Epoch 5 / 5: r1=0.4339, r2=0.2057, rl=0.4017
 Worker 0: Final testing: r1=0.4270, r2=0.1997, rl=0.3941
 ```
 
-Evaluating on the testing dataset..
+Evaluating on the testing dataset.
 ```bash
 python3 -u evaluate_summarization_model.py \
     --model_name bart-large \
